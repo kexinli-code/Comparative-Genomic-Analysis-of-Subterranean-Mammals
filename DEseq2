@@ -1,0 +1,36 @@
+library(DESeq2)
+
+mycounts<-read.csv("ME-BRE.csv")
+
+rownames(mycounts)<-mycounts[,1]
+mycounts<-mycounts[,-1]
+mycounts
+condition <- factor(c(rep("control",3),rep("treat",3)), levels = c("control","treat")) 
+condition
+colData <- data.frame(row.names=colnames(mycounts), condition)
+colData
+dds <- DESeqDataSetFromMatrix(mycounts, colData, design= ~ condition)
+length<- read.csv("/data04/lkx/02.DEG/03.eye/gene_len.csv",row.names=1, header=T)
+dds = DESeq2::estimateSizeFactors(dds, normMatrix = length) 
+dds <- dds[rowSums(counts(dds)) > 1, ]
+rld <- vst(dds) 
+plotPCA(rld) 
+dds <- DESeq(dds)
+
+res = results(dds, contrast=c("condition", "treat", "control"))
+head(res)
+summary(res)
+write.csv(res,file="All_results2.ME-BRE.csv")
+table(res$padj<0.01)
+
+diff_gene_deseq2 <-subset(res, padj < 0.01 & abs(log2FoldChange) > 1)
+diff_gene_deseq2[which(diff_gene_deseq2$log2FoldChange>0),'up_down']<-'up'
+diff_gene_deseq2[which(diff_gene_deseq2$log2FoldChange<0),'up_down']<-'down'
+#test_up <- diff_gene_deseq2$log2FoldChange >=1
+#test_down <- diff_gene_deseq2$log2FoldChange <=-1
+#diff_gene_deseq2$expressionlevel <- ifelse(test_up,"up",
+                           # ifelse(test_down,"down","none"))
+head(diff_gene_deseq2)
+dim(diff_gene_deseq2)
+write.csv(diff_gene_deseq2,file= "DEG-ME-BRE.csv") 
+
