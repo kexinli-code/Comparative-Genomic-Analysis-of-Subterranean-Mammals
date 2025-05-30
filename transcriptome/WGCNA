@@ -1,0 +1,90 @@
+library(dplyr)
+
+# 读取数据
+singe_copy <- read.csv("singe_copy.csv", stringsAsFactors = FALSE)
+mouse_data <- read.csv("Mouse_gene_fpkm_list.csv", stringsAsFactors = FALSE)
+zs_data <- read.csv("ZS_gene_fpkm_list.csv", stringsAsFactors = FALSE)
+
+combined_data <- lapply(1:nrow(singe_copy), function(i) {
+  mouse_gene <- singe_copy[i, 2]
+  zs_gene <- singe_copy[i, 3]
+
+# 取第5个及以后的字符
+  mouse_gene_trimmed <- substr(mouse_gene, 6, nchar(mouse_gene))
+  
+  mouse_row <- mouse_data[mouse_data$ID == mouse_gene, -1]
+  zs_row <- zs_data[zs_data$ID == zs_gene, -1]
+  
+  # 将mouse_gene_trimmed加入到合并的行中，并将列名改为GENE
+  cbind(GENE = mouse_gene_trimmed, mouse_row, zs_row)
+}) %>% do.call(rbind, .)
+
+write.csv(combined_data, "M_and_BR_combined_data.csv", row.names = FALSE)
+
+library(WGCNA)
+library(dplyr)
+
+combined_fpkm <- read.csv("M_and_BR_combined_data.csv", row.names=1)
+exp_fpkm <- log2(combined_fpkm+1)
+exp_fpkm <- t(exp_fpkm)
+
+gsg <- goodSamplesGenes(exp_fpkm, verbose=3)
+gsg$allOK
+
+zs_trait <- read.csv("M_and_BR_sample_trait_matrix.csv", row.names=1)
+head(zs_trait)
+
+
+sampleTree <- hclust(dist(exp_fpkm), method = "average")
+plot(sampleTree, main = "Sample clustering to detect outliers", sub = "", xlab = "")
+datExpr <- exp_fpkm
+nGenes = ncol(datExpr)
+nSamples = nrow(datExpr)
+dim(datExpr)
+datExpr <- datExpr[rownames(datExpr) %in% rownames(zs_trait), ]
+
+nSamples = nrow(datExpr)
+sampleTree_final <- hclust(dist(datExpr), method = "average")
+traitColors <- numbers2colors(zs_trait, signed = FALSE)
+head(traitColors)
+
+plotDendroAndColors(sampleTree_final, traitColors,
+                    groupLabels = names(zs_trait),
+                    main = "Sample dendrogram and trait heatmap")
+
+powers <- c(c(1:20), seq(from = 22, to = 30, by = 2))
+
+sft <- pickSoftThreshold(datExpr, powerVector = powers, verbose = 5)
+
+highlighted_power <- 16
+non_highlighted_indices <- which(powers != highlighted_power)
+text(sft$fitIndices[non_highlighted_indices,1], 
+     -sign(sft$fitIndices[non_highlighted_indices,3])*sft$fitIndices[non_highlighted_indices,2],
+     labels=powers[non_highlighted_indices], cex=0.9, col="black")
+
+
+highlighted_index <- which(powers == highlighted_power)
+text(sft$fitIndices[highlighted_index,1], 
+     -sign(sft$fitIndices[highlighted_index,3])*sft$fitIndices[highlighted_index,2],
+     labels=highlighted_power, cex=0.9, col="red", font=2) # font=2 用于加粗
+
+
+abline(h=0.8, col="red")
+
+
+plot(sft$fitIndices[,1], sft$fitIndices[,5],
+     xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+     main = paste("Mean connectivity"))
+text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=0.9,col="black")
+
+cor <- WGCNA::cor
+net <- blockwiseModules(datExpr, power = highlighted_power,
+                        maxBlockSize = nGenes, TOMType = "unsigned", 
+                        minModuleSize = 30, reassignThreshold = 0, mergeCutHeight = 0.25, 
+                        numericLabels = TRUE, pamRespectsDendro = FALSE, 
+                        saveTOMs = F, verbose = 3)
+
+
+table(net$colors)
+cor<-stats::cor
+moduleColors <- labels2colors(net$colors)
